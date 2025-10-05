@@ -148,7 +148,6 @@ func startWorker() {
 }
 
 func main() {
-	rand.Seed(time.Now().UnixNano())
 	initDB()
 	go startWorker()
 
