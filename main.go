@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"math/rand"
 	"net/http"
@@ -40,11 +41,48 @@ type OrderRequest struct {
 	PaymentToken  string `json:"payment_token"`
 }
 
+type APIError struct {
+	Error   string `json:"error"`
+	Message string `json:"message"`
+}
+
+// validateOrderRequest checks the input and returns an error if invalid
+func validateOrderRequest(req OrderRequest) error {
+	if req.EventID == "" {
+		return errors.New("event_id is required")
+	}
+	if req.Quantity <= 0 {
+		return errors.New("quantity must be greater than 0")
+	}
+	if req.Quantity > 10 {
+		return errors.New("quantity cannot exceed 10 per order")
+	}
+	if req.CustomerEmail == "" {
+		return errors.New("customer_email is required")
+	}
+	if req.PaymentToken == "" {
+		return errors.New("payment_token is required")
+	}
+
+	return nil
+}
+
+func respondJSON(w http.ResponseWriter, code int, payload interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(payload)
+}
+
 // POST /orders handler
 func handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 	var req OrderRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request payload", http.StatusBadRequest)
+		return
+	}
+
+	if err := validateOrderRequest(req); err != nil {
+		respondJSON(w, http.StatusBadRequest, APIError{"validation_error", err.Error()})
 		return
 	}
 
