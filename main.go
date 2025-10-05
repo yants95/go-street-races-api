@@ -6,11 +6,24 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
-	"sync"
 	"time"
+
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 
 	"github.com/google/uuid"
 )
+
+var db *gorm.DB
+
+func initDB() {
+	var err error
+	db, err = gorm.Open(sqlite.Open("orders.db"), &gorm.Config{})
+	if err != nil {
+		log.Fatalf("failed to connect database: %v", err)
+	}
+	db.AutoMigrate(&Order{}) // auto-create table
+}
 
 // Order represents a ticket order submitted by a client
 type Order struct {
@@ -26,9 +39,6 @@ type Order struct {
 
 // In-memory store to simulate persistence
 var (
-	orderStore = make(map[string]Order)
-	storeMutex = sync.Mutex{}
-
 	// Simulated queue (later replaced by SQS/PubSub)
 	orderQueue = make(chan Order, 10000)
 )
@@ -102,9 +112,11 @@ func handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Persist to store
-	storeMutex.Lock()
-	orderStore[orderID] = order
-	storeMutex.Unlock()
+	if err := db.Create(&order).Error; err != nil {
+		log.Printf("failed to persist order: %v", err)
+		respondJSON(w, http.StatusInternalServerError, APIError{"db_error", "failed to save order"})
+		return
+	}
 
 	// Publish to queue (async processing will handle inventory + payment)
 	select {
@@ -137,6 +149,7 @@ func startWorker() {
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
+	initDB()
 	go startWorker()
 
 	http.HandleFunc("/orders", handleCreateOrder)
